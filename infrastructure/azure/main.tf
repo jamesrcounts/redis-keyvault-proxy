@@ -1,5 +1,5 @@
 locals {
-  project = "tfaz"
+  project = "redis-keyvault-proxy"
 
   tags = {
     Environment = "Test"
