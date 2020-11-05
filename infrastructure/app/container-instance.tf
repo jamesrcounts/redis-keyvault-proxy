@@ -35,7 +35,10 @@ resource "azurerm_container_group" "worker" {
     }
   }
 
-  identity { type = "SystemAssigned" }
+  identity {
+    type         = "UserAssigned"
+    identity_ids = [azurerm_user_assigned_identity.cache_worker.id]
+  }
 
   image_registry_credential {
     password = random_password.password.result
