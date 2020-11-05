@@ -3,9 +3,9 @@ WORKDIR /app
 
 FROM mcr.microsoft.com/dotnet/core/sdk:3.1 AS build
 WORKDIR /src
-COPY ["app/CacheWorker/CacheWorker.csproj", "app/CacheWorker/"]
+COPY ["CacheWorker.csproj", "app/CacheWorker/"]
 RUN dotnet restore "app/CacheWorker/CacheWorker.csproj"
-COPY . .
+COPY . app/CacheWorker/
 WORKDIR "/src/app/CacheWorker"
 RUN dotnet build "CacheWorker.csproj" -c Release -o /app/build
 
