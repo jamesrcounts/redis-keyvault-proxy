@@ -5,10 +5,10 @@ locals {
 resource "azurerm_container_group" "worker" {
   dns_name_label      = local.aci_name
   ip_address_type     = "public"
-  location            = azurerm_resource_group.primary.location
+  location            = data.azurerm_resource_group.primary.location
   name                = local.aci_name
   os_type             = "Linux"
-  resource_group_name = azurerm_resource_group.primary.name
+  resource_group_name = data.azurerm_resource_group.primary.name
   restart_policy      = "Always"
   tags                = local.tags
 
@@ -18,20 +18,16 @@ resource "azurerm_container_group" "worker" {
     cpu    = "0.5"
     memory = "1.5"
 
-    environment_variables = []
+    environment_variables = {}
   }
 
   diagnostics {
     log_analytics {
-      log_type     = "ContainerInstanceLogs"
-      workspace_id = ""
+      log_type      = "ContainerInstanceLogs"
+      workspace_id  = data.azurerm_log_analytics_workspace.insights.workspace_id
+      workspace_key = data.azurerm_log_analytics_workspace.insights.primary_shared_key
     }
   }
-  dns_config {}
 
   identity { type = "SystemAssigned" }
-
-  image_registry_credential {}
-
-
 }

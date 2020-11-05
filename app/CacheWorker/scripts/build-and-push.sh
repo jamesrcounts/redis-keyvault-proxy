@@ -2,5 +2,5 @@
 set -euox pipefail
 
 pushd ..
-az acr build -t cacheworker:{{.Run.ID}} -r acrrediskeyvaultproxy -f Dockerfile .
+az acr build -t cacheworker:latest -t cacheworker:{{.Run.ID}} -r acrrediskeyvaultproxy -f Dockerfile .
 popd 
