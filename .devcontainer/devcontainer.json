@@ -23,6 +23,7 @@
 		"hashicorp.terraform",
 		"ms-azuretools.vscode-azureterraform",
 		"ms-azuretools.vscode-docker",
+		"ms-dotnettools.csharp",
 		"ms-vscode.azurecli",
 		"tyriar.sort-lines",
 	]
