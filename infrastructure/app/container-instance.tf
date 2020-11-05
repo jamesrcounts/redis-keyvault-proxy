@@ -13,21 +13,33 @@ resource "azurerm_container_group" "worker" {
   tags                = local.tags
 
   container {
-    name   = "cache-worker"
-    image  = "acrrediskeyvaultproxy/cacheworker:latest"
     cpu    = "0.5"
+    image  = "acrrediskeyvaultproxy.azurecr.io/cacheworker:latest"
     memory = "1.5"
+    name   = "cache-worker"
 
     environment_variables = {}
+
+    ports {
+      port     = 22
+      protocol = "TCP"
+    }
   }
 
   diagnostics {
     log_analytics {
-      log_type      = "ContainerInstanceLogs"
+      // log_type      = "ContainerInstanceLogs"
+      metadata      = {}
       workspace_id  = data.azurerm_log_analytics_workspace.insights.workspace_id
       workspace_key = data.azurerm_log_analytics_workspace.insights.primary_shared_key
     }
   }
 
   identity { type = "SystemAssigned" }
+
+  image_registry_credential {
+    password = random_password.password.result
+    server   = data.azurerm_container_registry.acr.login_server
+    username = azuread_service_principal.cache_worker_principal.application_id
+  }
 }
