@@ -10,37 +10,42 @@ using System;
 
 namespace CacheWorker
 {
+    public class CachedConnection
+    {
+        public ConnectionMultiplexer Connection { get; set; }
+        public int TTL { get; set; } = 10;
+    }
+
     public class Worker : BackgroundService
     {
         private IMemoryCache _cache;
         private readonly ILogger<Worker> _logger;
-        private static Lazy<ConnectionMultiplexer> _lazyConnection;
 
-        public static ConnectionMultiplexer Connection
-        {
-            get
-            {
-                return _lazyConnection.Value;
-            }
-        }
-
-        
         public Worker(ILogger<Worker> logger, IMemoryCache memoryCache)
         {
             _cache = memoryCache;
             _logger = logger;
         }
 
-        private ConnectionMultiplexer SetupConnection()
+        private CachedConnection SetupConnection(string instance)
         {
-            //Key vault service URL
-            var kvUri = "https://kv-redis-keyvault-proxy.vault.azure.net/";
-            var client = new SecretClient(new Uri(kvUri), new DefaultAzureCredential());
+            _logger.LogInformation("Connecting to {instance} redis instance.", instance);
 
-            KeyVaultSecret primary = GetSecret(client, "redis-connection-string-primary");
-            KeyVaultSecret secondary = GetSecret(client, "redis-connection-string-secondary");
+            var client = new SecretClient(
+                new Uri("https://kv-redis-keyvault-proxy.vault.azure.net/"),
+                new DefaultAzureCredential());
 
-            return ConnectionMultiplexer.Connect($"{primary.Value},{secondary.Value}");
+            string secretId = "redis-connection-string-primary";
+            if (instance != "primary")
+            {
+                secretId = "redis-connection-string-secondary";
+            }
+
+            KeyVaultSecret secret = GetSecret(client, secretId);
+            return new CachedConnection
+            {
+                Connection = ConnectionMultiplexer.Connect(secret.Value)
+            };
         }
 
         private KeyVaultSecret GetSecret(SecretClient client, string key)
@@ -49,7 +54,7 @@ namespace CacheWorker
             // Look for cache key.
             if (!_cache.TryGetValue(key, out secret))
             {
-                Console.WriteLine($"Retrieving {key}");
+                _logger.LogInformation($"Retrieving {key}");
                 // Key not in cache, so get data.
                 secret = client.GetSecret(key);
 
@@ -59,55 +64,93 @@ namespace CacheWorker
 
                 // Save data in cache.
                 _cache.Set(key, secret, cacheEntryOptions);
-                Console.WriteLine("Your secret is '" + secret.Value + "'.");
+                _logger.LogDebug("Your secret is '{}'.", secret.Value);
             }
 
             return secret;
         }
 
+        private ConnectionMultiplexer GetConnection(string instance)
+        {
+            if (!_cache.TryGetValue<CachedConnection>(instance, out var cached))
+            {
+                _logger.LogInformation("No cached connection for {instance}", instance);
+                cached = SetupConnection(instance);
+                PutConnection(instance, cached);
+            }
+
+            if (cached.TTL <= 0)
+            {
+                _cache.Remove(instance);
+                cached = SetupConnection(instance);
+                PutConnection(instance, cached);
+            }
+
+            cached.TTL -= 1;
+            _logger.LogInformation("Connection TTL: {ttl}", cached.TTL);
+            return cached.Connection;
+
+            void PutConnection(string instance, CachedConnection cached)
+            {
+                // Expire after 5 minutes even if TTL has not reached 0
+                var cacheEntryOptions = new MemoryCacheEntryOptions()
+                    .SetAbsoluteExpiration(TimeSpan.FromMinutes(5))
+                    .RegisterPostEvictionCallback((key, value, reason, state) =>
+                    {
+                        var item = value as CachedConnection;
+                        if (item != null)
+                        {
+                            _logger.LogInformation("Disposing of stale cache item (formerly {key}).", key);
+                            item.Connection.Dispose();
+                        }
+                    });
+
+                _cache.Set(instance, cached, cacheEntryOptions);
+                _logger.LogInformation("Cached connection created for {instance}.", instance);
+            }
+        }
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
-
-
             while (!stoppingToken.IsCancellationRequested)
             {
-                using (var connection = SetupConnection())
-                {
-                    var cache = connection.GetDatabase();
+                DateTimeOffset now = DateTimeOffset.Now;
+                _logger.LogInformation("Worker running at: {time}", now);
 
-                    _logger.LogInformation("Worker running at: {time}", DateTimeOffset.Now);
+                // Perform cache operations using the cache object...
+                var connection = GetConnection("primary");
+                var cache = connection.GetDatabase();
 
-                    // Perform cache operations using the cache object...
+                // Simple PING command
+                string cacheCommand = "PING";
+                _logger.LogInformation("Cache command  => {command}", cacheCommand);
+                _logger.LogInformation("Cache response <= {response}", cache.Execute(cacheCommand).ToString());
 
-                    // Simple PING command
-                    string cacheCommand = "PING";
-                    Console.WriteLine("\nCache command  : " + cacheCommand);
-                    Console.WriteLine("Cache response : " + cache.Execute(cacheCommand).ToString());
+                // Simple get and put of integral data types into the cache
+                GetMessage(cache);
+                string message = $"{now}: Hello! The cache is working from a .NET Core console app!";
+                cacheCommand = $"SET Message \"{message}\"";
+                _logger.LogInformation("Cache command  => {command} or StringSet()", cacheCommand);
+                _logger.LogInformation("Cache response <= {response}", cache.StringSet("Message", message).ToString());
 
-                    // Simple get and put of integral data types into the cache
-                    cacheCommand = "GET Message";
-                    Console.WriteLine("\nCache command  : " + cacheCommand + " or StringGet()");
-                    Console.WriteLine("Cache response : " + cache.StringGet("Message").ToString());
+                // Demonstrate "SET Message" executed as expected...
+                GetMessage(cache);
 
-                    cacheCommand = "SET Message \"Hello! The cache is working from a .NET Core console app!\"";
-                    Console.WriteLine("\nCache command  : " + cacheCommand + " or StringSet()");
-                    Console.WriteLine("Cache response : " + cache.StringSet("Message", "Hello! The cache is working from a .NET Core console app!").ToString());
+                _logger.LogInformation("Get the client list, useful to see if connection list is growing...");
+                cacheCommand = "CLIENT LIST";
+                _logger.LogInformation("Cache command  => {command}", cacheCommand);
+                _logger.LogInformation("Cache response <= \n{response}", cache.Execute("CLIENT", "LIST").ToString().Replace("id=", "id="));
 
-                    // Demonstrate "SET Message" executed as expected...
-                    cacheCommand = "GET Message";
-                    Console.WriteLine("\nCache command  : " + cacheCommand + " or StringGet()");
-                    Console.WriteLine("Cache response : " + cache.StringGet("Message").ToString());
 
-                    // Get the client list, useful to see if connection list is growing...
-                    cacheCommand = "CLIENT LIST";
-                    Console.WriteLine("\nCache command  : " + cacheCommand);
-                    Console.WriteLine("Cache response : \n" + cache.Execute("CLIENT", "LIST").ToString().Replace("id=", "id="));
-
-                    connection.Dispose();
-                }
-                await Task.Delay(10000, stoppingToken);
+                await Task.Delay(1000, stoppingToken);
             }
+        }
+
+        private void GetMessage(IDatabase cache)
+        {
+            string cacheCommand = "GET Message";
+            _logger.LogInformation("Cache command  => {command} or StringGet()", cacheCommand);
+            _logger.LogInformation("Cache response <= {response}", cache.StringGet("Message").ToString());
         }
     }
 }
