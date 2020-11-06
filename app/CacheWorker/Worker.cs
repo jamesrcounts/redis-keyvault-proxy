@@ -10,12 +10,6 @@ using System;
 
 namespace CacheWorker
 {
-    public class CachedConnection
-    {
-        public ConnectionMultiplexer Connection { get; set; }
-        public int TTL { get; set; } = 10;
-    }
-
     public class Worker : BackgroundService
     {
         private IMemoryCache _cache;
@@ -29,68 +23,71 @@ namespace CacheWorker
 
         private CachedConnection SetupConnection(string instance)
         {
-            _logger.LogInformation("Connecting to {instance} redis instance.", instance);
+            try
+            {
+                _logger.LogInformation("Connecting to {instance} redis instance.", instance);
 
+                string secretId = "redis-connection-string-primary";
+                if (instance != "primary")
+                {
+                    secretId = "redis-connection-string-secondary";
+                }
+
+                KeyVaultSecret secret = GetSecret(secretId);
+                ConnectionMultiplexer connection = ConnectionMultiplexer.Connect(secret.Value);
+                var cache = connection.GetDatabase();
+                _logger.LogInformation("Cache connection response <= {response}", cache.Execute("PING").ToString());
+
+                return new CachedConnection
+                {
+                    Instance = instance,
+                    Connection = connection
+                };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Could not get working connection: {connection}", instance);
+                return null;
+            }
+        }
+
+        private KeyVaultSecret GetSecret(string key)
+        {
             var client = new SecretClient(
                 new Uri("https://kv-redis-keyvault-proxy.vault.azure.net/"),
                 new DefaultAzureCredential());
 
-            string secretId = "redis-connection-string-primary";
-            if (instance != "primary")
-            {
-                secretId = "redis-connection-string-secondary";
-            }
-
-            KeyVaultSecret secret = GetSecret(client, secretId);
-            return new CachedConnection
-            {
-                Connection = ConnectionMultiplexer.Connect(secret.Value)
-            };
-        }
-
-        private KeyVaultSecret GetSecret(SecretClient client, string key)
-        {
-            KeyVaultSecret secret;
-            // Look for cache key.
-            if (!_cache.TryGetValue(key, out secret))
-            {
-                _logger.LogInformation($"Retrieving {key}");
-                // Key not in cache, so get data.
-                secret = client.GetSecret(key);
-
-                // Keep in cache for only a limited time to allow worker to detect key rotation.
-                var cacheEntryOptions = new MemoryCacheEntryOptions()
-                    .SetAbsoluteExpiration(TimeSpan.FromSeconds(30));
-
-                // Save data in cache.
-                _cache.Set(key, secret, cacheEntryOptions);
-                _logger.LogDebug("Your secret is '{}'.", secret.Value);
-            }
-
+            _logger.LogInformation($"Retrieving {key}");
+            KeyVaultSecret secret = client.GetSecret(key);
+            _logger.LogDebug("Your secret is '{secret}'.", secret.Value);
             return secret;
         }
 
-        private ConnectionMultiplexer GetConnection(string instance)
+        private ConnectionMultiplexer GetWorkingConnection()
         {
-            if (!_cache.TryGetValue<CachedConnection>(instance, out var cached))
+            const string cacheConnection = nameof(cacheConnection);
+            const string primary = nameof(primary);
+            const string secondary = nameof(secondary);
+
+            if (!_cache.TryGetValue<CachedConnection>(cacheConnection, out var cached))
             {
-                _logger.LogInformation("No cached connection for {instance}", instance);
-                cached = SetupConnection(instance);
-                PutConnection(instance, cached);
+                _logger.LogInformation("No cached connection");
+                cached = SetupWorkingConnection(primary, secondary);
+                PutConnection(cacheConnection, cached);
             }
 
             if (cached.TTL <= 0)
             {
-                _cache.Remove(instance);
-                cached = SetupConnection(instance);
-                PutConnection(instance, cached);
+                _cache.Remove(cacheConnection);
+                cached = SetupWorkingConnection(primary, secondary);
+                PutConnection(cacheConnection, cached);
             }
 
             cached.TTL -= 1;
-            _logger.LogInformation("Connection TTL: {ttl}", cached.TTL);
+            _logger.LogInformation("Connection TTL for {instance}: {ttl}", cached.Instance, cached.TTL);
             return cached.Connection;
 
-            void PutConnection(string instance, CachedConnection cached)
+            void PutConnection(string key, CachedConnection cached)
             {
                 // Expire after 5 minutes even if TTL has not reached 0
                 var cacheEntryOptions = new MemoryCacheEntryOptions()
@@ -100,13 +97,20 @@ namespace CacheWorker
                         var item = value as CachedConnection;
                         if (item != null)
                         {
-                            _logger.LogInformation("Disposing of stale cache item (formerly {key}).", key);
+                            _logger.LogInformation("Disposing of stale cache item (formerly {instance}).", item.Instance);
                             item.Connection.Dispose();
                         }
                     });
 
-                _cache.Set(instance, cached, cacheEntryOptions);
-                _logger.LogInformation("Cached connection created for {instance}.", instance);
+                _cache.Set(key, cached, cacheEntryOptions);
+                _logger.LogInformation("Cached connection created for {instance}.", cached.Instance);
+            }
+
+            CachedConnection SetupWorkingConnection(string primary, string secondary)
+            {
+                return SetupConnection(primary) ??
+                    SetupConnection(secondary) ??
+                    throw new Exception("Could not get working Redis connection.");
             }
         }
 
@@ -127,7 +131,7 @@ namespace CacheWorker
         {
             try
             {
-                var connection = GetConnection("primary");
+                var connection = GetWorkingConnection();
                 var cache = connection.GetDatabase();
 
                 // Simple PING command
