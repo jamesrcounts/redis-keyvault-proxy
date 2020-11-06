@@ -117,7 +117,16 @@ namespace CacheWorker
                 DateTimeOffset now = DateTimeOffset.Now;
                 _logger.LogInformation("Worker running at: {time}", now);
 
-                // Perform cache operations using the cache object...
+                PerformCacheOperations();
+
+                await Task.Delay(1000, stoppingToken);
+            }
+        }
+
+        private void PerformCacheOperations()
+        {
+            try
+            {
                 var connection = GetConnection("primary");
                 var cache = connection.GetDatabase();
 
@@ -128,6 +137,7 @@ namespace CacheWorker
 
                 // Simple get and put of integral data types into the cache
                 GetMessage(cache);
+                DateTimeOffset now = DateTimeOffset.Now;
                 string message = $"{now}: Hello! The cache is working from a .NET Core console app!";
                 cacheCommand = $"SET Message \"{message}\"";
                 _logger.LogInformation("Cache command  => {command} or StringSet()", cacheCommand);
@@ -140,9 +150,10 @@ namespace CacheWorker
                 cacheCommand = "CLIENT LIST";
                 _logger.LogInformation("Cache command  => {command}", cacheCommand);
                 _logger.LogInformation("Cache response <= \n{response}", cache.Execute("CLIENT", "LIST").ToString().Replace("id=", "id="));
-
-
-                await Task.Delay(1000, stoppingToken);
+            }
+            catch (System.Exception ex)
+            {
+                _logger.LogError(ex, "Cache Operations Error");
             }
         }
 
