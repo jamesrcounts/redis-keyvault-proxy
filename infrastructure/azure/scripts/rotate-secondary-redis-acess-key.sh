@@ -2,5 +2,5 @@
 set -euox pipefail
 
 az redis regenerate-keys --key-type Secondary \
-                         --name rc-sharp-satyr \
+                         --name rc-valid-hookworm \
                          --resource-group rg-redis-keyvault-proxy

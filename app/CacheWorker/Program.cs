@@ -18,6 +18,7 @@ namespace CacheWorker
             Host.CreateDefaultBuilder(args)
                 .ConfigureServices((hostContext, services) =>
                 {
+                    services.AddMemoryCache();
                     services.AddHostedService<Worker>();
                 });
     }

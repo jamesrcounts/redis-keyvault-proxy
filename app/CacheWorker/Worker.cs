@@ -1,5 +1,6 @@
 using Azure.Identity;
 using Azure.Security.KeyVault.Secrets;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using StackExchange.Redis;
@@ -11,6 +12,7 @@ namespace CacheWorker
 {
     public class Worker : BackgroundService
     {
+        private IMemoryCache _cache;
         private readonly ILogger<Worker> _logger;
         private static Lazy<ConnectionMultiplexer> _lazyConnection;
 
@@ -21,69 +23,90 @@ namespace CacheWorker
                 return _lazyConnection.Value;
             }
         }
-        public Worker(ILogger<Worker> logger)
+
+        
+        public Worker(ILogger<Worker> logger, IMemoryCache memoryCache)
         {
+            _cache = memoryCache;
             _logger = logger;
-            _lazyConnection = new Lazy<ConnectionMultiplexer>(() =>
-            {
-                //Key vault service URL
-                var kvUri = "https://kv-redis-keyvault-proxy.vault.azure.net/";
-                var client = new SecretClient(new Uri(kvUri), new DefaultAzureCredential());
-
-                // <getsecret>
-                KeyVaultSecret primary = client.GetSecret("redis-connection-string-primary");
-                KeyVaultSecret secondary = client.GetSecret("redis-connection-string-secondary");
-
-                // </getsecret>
-                //displaying the secret URL
-                Console.WriteLine("Your secret is '" + primary.Value + "'.");
-                Console.WriteLine("Your secret is '" + secondary.Value + "'.");
-
-                return ConnectionMultiplexer.Connect($"{primary.Value},{secondary.Value}"); // this might not be kosher
-            });
         }
 
-        public override void Dispose()
+        private ConnectionMultiplexer SetupConnection()
         {
-            _lazyConnection.Value.Dispose();
-            base.Dispose();
+            //Key vault service URL
+            var kvUri = "https://kv-redis-keyvault-proxy.vault.azure.net/";
+            var client = new SecretClient(new Uri(kvUri), new DefaultAzureCredential());
+
+            KeyVaultSecret primary = GetSecret(client, "redis-connection-string-primary");
+            KeyVaultSecret secondary = GetSecret(client, "redis-connection-string-secondary");
+
+            return ConnectionMultiplexer.Connect($"{primary.Value},{secondary.Value}");
         }
+
+        private KeyVaultSecret GetSecret(SecretClient client, string key)
+        {
+            KeyVaultSecret secret;
+            // Look for cache key.
+            if (!_cache.TryGetValue(key, out secret))
+            {
+                Console.WriteLine($"Retrieving {key}");
+                // Key not in cache, so get data.
+                secret = client.GetSecret(key);
+
+                // Keep in cache for only a limited time to allow worker to detect key rotation.
+                var cacheEntryOptions = new MemoryCacheEntryOptions()
+                    .SetAbsoluteExpiration(TimeSpan.FromSeconds(30));
+
+                // Save data in cache.
+                _cache.Set(key, secret, cacheEntryOptions);
+                Console.WriteLine("Your secret is '" + secret.Value + "'.");
+            }
+
+            return secret;
+        }
+
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
-            IDatabase cache = Connection.GetDatabase();
+
 
             while (!stoppingToken.IsCancellationRequested)
             {
-                _logger.LogInformation("Worker running at: {time}", DateTimeOffset.Now);
-                
-                // Perform cache operations using the cache object...
+                using (var connection = SetupConnection())
+                {
+                    var cache = connection.GetDatabase();
 
-                // Simple PING command
-                string cacheCommand = "PING";
-                Console.WriteLine("\nCache command  : " + cacheCommand);
-                Console.WriteLine("Cache response : " + cache.Execute(cacheCommand).ToString());
+                    _logger.LogInformation("Worker running at: {time}", DateTimeOffset.Now);
 
-                // Simple get and put of integral data types into the cache
-                cacheCommand = "GET Message";
-                Console.WriteLine("\nCache command  : " + cacheCommand + " or StringGet()");
-                Console.WriteLine("Cache response : " + cache.StringGet("Message").ToString());
+                    // Perform cache operations using the cache object...
 
-                cacheCommand = "SET Message \"Hello! The cache is working from a .NET Core console app!\"";
-                Console.WriteLine("\nCache command  : " + cacheCommand + " or StringSet()");
-                Console.WriteLine("Cache response : " + cache.StringSet("Message", "Hello! The cache is working from a .NET Core console app!").ToString());
+                    // Simple PING command
+                    string cacheCommand = "PING";
+                    Console.WriteLine("\nCache command  : " + cacheCommand);
+                    Console.WriteLine("Cache response : " + cache.Execute(cacheCommand).ToString());
 
-                // Demonstrate "SET Message" executed as expected...
-                cacheCommand = "GET Message";
-                Console.WriteLine("\nCache command  : " + cacheCommand + " or StringGet()");
-                Console.WriteLine("Cache response : " + cache.StringGet("Message").ToString());
+                    // Simple get and put of integral data types into the cache
+                    cacheCommand = "GET Message";
+                    Console.WriteLine("\nCache command  : " + cacheCommand + " or StringGet()");
+                    Console.WriteLine("Cache response : " + cache.StringGet("Message").ToString());
 
-                // Get the client list, useful to see if connection list is growing...
-                cacheCommand = "CLIENT LIST";
-                Console.WriteLine("\nCache command  : " + cacheCommand);
-                Console.WriteLine("Cache response : \n" + cache.Execute("CLIENT", "LIST").ToString().Replace("id=", "id="));
+                    cacheCommand = "SET Message \"Hello! The cache is working from a .NET Core console app!\"";
+                    Console.WriteLine("\nCache command  : " + cacheCommand + " or StringSet()");
+                    Console.WriteLine("Cache response : " + cache.StringSet("Message", "Hello! The cache is working from a .NET Core console app!").ToString());
 
-                await Task.Delay(1000, stoppingToken);
+                    // Demonstrate "SET Message" executed as expected...
+                    cacheCommand = "GET Message";
+                    Console.WriteLine("\nCache command  : " + cacheCommand + " or StringGet()");
+                    Console.WriteLine("Cache response : " + cache.StringGet("Message").ToString());
+
+                    // Get the client list, useful to see if connection list is growing...
+                    cacheCommand = "CLIENT LIST";
+                    Console.WriteLine("\nCache command  : " + cacheCommand);
+                    Console.WriteLine("Cache response : \n" + cache.Execute("CLIENT", "LIST").ToString().Replace("id=", "id="));
+
+                    connection.Dispose();
+                }
+                await Task.Delay(10000, stoppingToken);
             }
         }
     }
