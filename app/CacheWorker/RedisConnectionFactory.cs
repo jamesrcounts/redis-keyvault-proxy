@@ -1,3 +1,4 @@
+using Azure.Core;
 using Azure.Identity;
 using Azure.Security.KeyVault.Secrets;
 using Microsoft.Extensions.Caching.Memory;
@@ -7,7 +8,8 @@ using System;
 
 namespace CacheWorker
 {
-    public class RedisConnectionFactory{
+    public class RedisConnectionFactory
+    {
         private IMemoryCache _cache;
         private readonly ILogger<Worker> _logger;
 
@@ -49,9 +51,20 @@ namespace CacheWorker
 
         private KeyVaultSecret GetSecret(string key)
         {
+            SecretClientOptions options = new SecretClientOptions()
+            {
+                Retry =
+                {
+                    Delay= TimeSpan.FromSeconds(2),
+                    MaxDelay = TimeSpan.FromSeconds(16),
+                    MaxRetries = 5,
+                    Mode = RetryMode.Exponential
+                }
+            };
             var client = new SecretClient(
                 new Uri("https://kv-redis-keyvault-proxy.vault.azure.net/"),
-                new DefaultAzureCredential());
+                new DefaultAzureCredential(),
+                options);
 
             _logger.LogInformation($"Retrieving {key}");
             KeyVaultSecret secret = client.GetSecret(key);
