@@ -2,16 +2,16 @@ using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using StackExchange.Redis;
-using System.Threading.Tasks;
-using System.Threading;
 using System;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace CacheWorker
 {
     public class Worker : BackgroundService
     {
-        private readonly ILogger<Worker> _logger;
         private readonly RedisConnectionFactory _factory;
+        private readonly ILogger<Worker> _logger;
 
         public Worker(ILogger<Worker> logger, IMemoryCache memoryCache)
         {
@@ -31,6 +31,12 @@ namespace CacheWorker
             }
         }
 
+        private void GetMessage(IDatabase cache)
+        {
+            _logger.LogInformation("Cache command  => {command} or StringGet()", "GET Message");
+            _logger.LogInformation("Cache response <= {response}", cache.StringGet("Message").ToString());
+        }
+
         private void PerformCacheOperations()
         {
             try
@@ -38,26 +44,11 @@ namespace CacheWorker
                 var connection = _factory.GetWorkingConnection();
                 var cache = connection.GetDatabase();
 
-                // Simple PING command
-                string cacheCommand = "PING";
-                _logger.LogInformation("Cache command  => {command}", cacheCommand);
-                _logger.LogInformation("Cache response <= {response}", cache.Execute(cacheCommand).ToString());
-
-                // Simple get and put of integral data types into the cache
+                PingCache(cache);
                 GetMessage(cache);
-                DateTimeOffset now = DateTimeOffset.Now;
-                string message = $"{now}: Hello! The cache is working from a .NET Core console app!";
-                cacheCommand = $"SET Message \"{message}\"";
-                _logger.LogInformation("Cache command  => {command} or StringSet()", cacheCommand);
-                _logger.LogInformation("Cache response <= {response}", cache.StringSet("Message", message).ToString());
-
-                // Demonstrate "SET Message" executed as expected...
+                PutMessage(cache);
                 GetMessage(cache);
-
-                _logger.LogInformation("Get the client list, useful to see if connection list is growing...");
-                cacheCommand = "CLIENT LIST";
-                _logger.LogInformation("Cache command  => {command}", cacheCommand);
-                _logger.LogInformation("Cache response <= \n{response}", cache.Execute("CLIENT", "LIST").ToString().Replace("id=", "id="));
+                ShowCacheClients(cache);
             }
             catch (System.Exception ex)
             {
@@ -65,11 +56,27 @@ namespace CacheWorker
             }
         }
 
-        private void GetMessage(IDatabase cache)
+        private void PingCache(IDatabase cache)
         {
-            string cacheCommand = "GET Message";
-            _logger.LogInformation("Cache command  => {command} or StringGet()", cacheCommand);
-            _logger.LogInformation("Cache response <= {response}", cache.StringGet("Message").ToString());
+            const string cacheCommand = "PING";
+            _logger.LogInformation("Cache command  => {command}", cacheCommand);
+            _logger.LogInformation("Cache response <= {response}", cache.Execute(cacheCommand).ToString());
+        }
+
+        private void PutMessage(IDatabase cache)
+        {
+            var message = $"{DateTimeOffset.Now}: Hello! The cache is working from a .NET Core console app!";
+            _logger.LogInformation("Cache command  => {command} or StringSet()", $"SET Message \"{message}\"");
+            _logger.LogInformation("Cache response <= {response}", cache.StringSet("Message", message).ToString());
+        }
+
+        private void ShowCacheClients(IDatabase cache)
+        {
+            _logger.LogInformation("Get the client list, useful to see if connection list is growing...");
+            _logger.LogInformation("Cache command  => {command}", "CLIENT LIST");
+            _logger.LogInformation(
+                "Cache response <= \n{response}",
+                cache.Execute("CLIENT", "LIST").ToString()?.Replace("id=", "id="));
         }
     }
 }
