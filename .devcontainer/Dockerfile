@@ -1,6 +1,6 @@
 # You can pick any Debian/Ubuntu-based image. 😊
-ARG VARIANT=3.1
-FROM mcr.microsoft.com/vscode/devcontainers/dotnetcore:${VARIANT}
+ARG VARIANT=5.0
+FROM mcr.microsoft.com/vscode/devcontainers/dotnet:${VARIANT}
 
 # [Option] Install zsh
 ARG INSTALL_ZSH="true"
