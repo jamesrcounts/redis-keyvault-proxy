@@ -1,5 +1,8 @@
 default: apply
 
+clean: init
+	terraform destroy -auto-approve
+
 fmt:
 	terraform fmt -recursive
 
