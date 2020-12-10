@@ -1,16 +1,19 @@
 default: apply
 
-clean: init
+clean: connect
 	terraform destroy -auto-approve
 
-fmt:
-	terraform fmt -recursive
+connect:
+	terraform init -get-plugins=false -get=false
 
 init:
-	terraform init --upgrade
+	terraform init -upgrade
+
+format:
+	terraform fmt -recursive
 
 validate:
 	terraform validate
 
-apply: fmt init validate
+apply: connect format validate
 	terraform apply
