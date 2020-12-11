@@ -17,6 +17,9 @@ namespace CacheWorker
         private readonly IMemoryCache _cache;
         private readonly ILogger<Worker> _logger;
 
+        private readonly TimeSpan _expiration = TimeSpan.FromSeconds(30);
+        // private readonly TimeSpan _expiration = TimeSpan.FromMinutes(5);
+
         public RedisConnectionFactory(ILogger<Worker> logger, IMemoryCache memoryCache)
         {
             _cache = memoryCache;
@@ -32,15 +35,14 @@ namespace CacheWorker
                 PutConnection(CacheConnection, cached);
             }
 
-            if (cached.TTL <= 0)
+            if (!cached.IsValid())
             {
                 _cache.Remove(CacheConnection);
                 cached = SetupWorkingConnection(Primary, Secondary);
                 PutConnection(CacheConnection, cached);
             }
 
-            cached.TTL -= 1;
-            _logger.LogInformation("Connection TTL for {instance}: {ttl}", cached.Instance, cached.TTL);
+            _logger.LogInformation("Using cached connection {instance}", cached.Id);
             return cached.Connection;
         }
 
@@ -68,50 +70,37 @@ namespace CacheWorker
 
         private void PutConnection(string key, CachedConnection cached)
         {
-            // Expire after 5 minutes even if TTL has not reached 0
             var cacheEntryOptions = new MemoryCacheEntryOptions()
-                .SetAbsoluteExpiration(TimeSpan.FromMinutes(5))
+                .SetAbsoluteExpiration(_expiration)
                 .RegisterPostEvictionCallback((k, value, reason, state) =>
                 {
                     if (!(value is CachedConnection item)) return;
 
-                    _logger.LogInformation("Disposing of stale cache item (formerly {instance}).", item.Instance);
+                    _logger.LogInformation("Disposing of stale cache item (formerly {instance}).", item.Id);
                     item.Connection.Dispose();
                 });
 
             _cache.Set(key, cached, cacheEntryOptions);
-            _logger.LogInformation("Cached connection created for {instance}.", cached.Instance);
+            _logger.LogInformation("Cached connection created for {instance}.", cached.Id);
         }
 
         private CachedConnection SetupConnection(string instance)
         {
-            try
+            _logger.LogInformation("Connecting to {instance} redis instance.", instance);
+
+            var secretId = instance == Primary ?
+                "redis-connection-string-primary" :
+                "redis-connection-string-secondary";
+
+            var secret = GetSecret(secretId);
+            var connection = new CachedConnection(instance, secret.Value);
+            if (connection.IsValid())
             {
-                _logger.LogInformation("Connecting to {instance} redis instance.", instance);
-
-                var secretId = instance == Primary ?
-                    "redis-connection-string-primary" :
-                    "redis-connection-string-secondary";
-
-                var secret = GetSecret(secretId);
-                var connection = ConnectionMultiplexer.Connect(secret.Value);
-
-                // Test connection with PING
-                var cache = connection.GetDatabase();
-                _logger.LogInformation("Cache connection response <= {response}", cache.Execute("PING").ToString());
-
-                return new CachedConnection
-                {
-                    Instance = instance,
-                    Connection = connection
-                };
+                return connection;
             }
-            catch (Exception ex)
-            {
-                // PING failed
-                _logger.LogError(ex, "Could not get working connection: {connection}", instance);
-                return null;
-            }
+                            
+            _logger.LogError("Could not get working connection: {connection}", instance);
+            return null;
         }
 
         private CachedConnection SetupWorkingConnection(string primary, string secondary)

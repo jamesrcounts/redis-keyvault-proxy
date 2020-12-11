@@ -2,5 +2,5 @@
 set -euox pipefail
 
 az redis regenerate-keys --key-type Primary \
-                         --name rc-valid-hookworm \
+                         --name rc-poetic-tick \
                          --resource-group rg-redis-keyvault-proxy
