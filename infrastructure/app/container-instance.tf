@@ -14,7 +14,7 @@ resource "azurerm_container_group" "worker" {
 
   container {
     cpu    = "0.5"
-    image  = "acrrediskeyvaultproxy.azurecr.io/cacheworker:latest"
+    image  = "acrrediskeyvaultproxy.azurecr.io/${var.image}"
     memory = "1.5"
     name   = "cache-worker"
 

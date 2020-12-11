@@ -1,4 +1,17 @@
+SHELL := /bin/bash
+REGISTRY=acrrediskeyvaultproxy
+REPOSITORY=cacheworker
+# TAGS:=$$(pwd)
+TAGS=$$(az acr repository show-tags \
+			--name ${REGISTRY} \
+			--repository ${REPOSITORY} \
+			--orderby time_desc \
+			--output tsv)
+
 default: apply
+
+info:
+	T=($(TAGS)); echo -e "image = \"$(REPOSITORY):$${T[0]}\"" > variables.auto.tfvars
 
 clean: connect
 	terraform destroy -auto-approve
@@ -15,5 +28,5 @@ format:
 validate:
 	terraform validate
 
-apply: connect format validate
-	terraform apply
+apply: info connect format validate
+	terraform apply 
