@@ -2,5 +2,5 @@
 set -euox pipefail
 
 az redis regenerate-keys --key-type Primary \
-                         --name rc-poetic-tick \
+                         --name rc-flowing-shad \
                          --resource-group rg-redis-keyvault-proxy

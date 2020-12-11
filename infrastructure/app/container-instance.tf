@@ -28,7 +28,6 @@ resource "azurerm_container_group" "worker" {
 
   diagnostics {
     log_analytics {
-      // log_type      = "ContainerInstanceLogs"
       metadata      = {}
       workspace_id  = data.azurerm_log_analytics_workspace.insights.workspace_id
       workspace_key = data.azurerm_log_analytics_workspace.insights.primary_shared_key

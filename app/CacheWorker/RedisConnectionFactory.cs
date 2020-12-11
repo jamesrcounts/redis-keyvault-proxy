@@ -17,8 +17,7 @@ namespace CacheWorker
         private readonly IMemoryCache _cache;
         private readonly ILogger<Worker> _logger;
 
-        private readonly TimeSpan _expiration = TimeSpan.FromSeconds(30);
-        // private readonly TimeSpan _expiration = TimeSpan.FromMinutes(5);
+        private readonly TimeSpan _expiration = TimeSpan.FromMinutes(5);
 
         public RedisConnectionFactory(ILogger<Worker> logger, IMemoryCache memoryCache)
         {
