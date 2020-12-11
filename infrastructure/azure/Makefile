@@ -17,3 +17,15 @@ validate:
 
 apply: connect format validate
 	terraform apply
+
+rotate_primary:
+	ID=$$(terraform output -json redis_cache_name | jq -r); \
+	az redis regenerate-keys --key-type Primary \
+		--name $${ID} \
+		--resource-group rg-redis-keyvault-proxy
+
+rotate_secondary:
+	ID=$$(terraform output -json redis_cache_name | jq -r); \
+	az redis regenerate-keys --key-type Secondary \
+		--name $${ID} \
+		--resource-group rg-redis-keyvault-proxy
