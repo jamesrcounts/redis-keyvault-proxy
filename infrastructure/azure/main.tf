@@ -2,7 +2,7 @@ locals {
   project = "redis-keyvault-proxy"
 
   tags = {
-    Environment = "Test"
+    project = local.project
   }
 }
 
