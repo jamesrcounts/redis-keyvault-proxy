@@ -40,8 +40,8 @@ resource "azurerm_container_group" "worker" {
   }
 
   image_registry_credential {
-    password = random_password.password.result
+    password = data.azurerm_key_vault_secret.principal_password.value
     server   = data.azurerm_container_registry.acr.login_server
-    username = azuread_service_principal.cache_worker_principal.application_id
+    username = data.azurerm_key_vault_secret.principal_id.value
   }
 }

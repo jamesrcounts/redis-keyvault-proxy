@@ -21,7 +21,14 @@ resource "azurerm_key_vault" "ops" {
 
 resource "azurerm_key_vault_secret" "cache_worker_principal_id" {
   name         = "cache-worker-principal-id"
-  value        = azuread_service_principal.cache_worker_principal.id
+  value        = azuread_service_principal.cache_worker_principal.application_id
+  key_vault_id = azurerm_key_vault.ops.id
+  tags         = local.tags
+}
+
+resource "azurerm_key_vault_secret" "cache_worker_principal_password" {
+  name         = "cache-worker-principal-password"
+  value        = random_password.cache_worker_password.result
   key_vault_id = azurerm_key_vault.ops.id
   tags         = local.tags
 }
