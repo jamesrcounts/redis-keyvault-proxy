@@ -35,3 +35,6 @@ validate:
 
 apply: info connect format validate
 	terraform apply 
+
+update: info connect 
+	terraform apply -auto-approve
