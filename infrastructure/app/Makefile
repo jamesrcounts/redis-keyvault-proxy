@@ -25,6 +25,11 @@ init:
 format:
 	terraform fmt -recursive
 
+show: 
+	T=$$(mktemp); \
+		terraform show -no-color > $${T}; \
+		code $${T}
+
 validate:
 	terraform validate
 

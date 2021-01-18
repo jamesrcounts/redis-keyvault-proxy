@@ -1,5 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 
 namespace CacheWorker
 {
@@ -7,6 +8,7 @@ namespace CacheWorker
     {
         public static IHostBuilder CreateHostBuilder(string[] args) =>
             Host.CreateDefaultBuilder(args)
+                .ConfigureLogging(builder => builder.AddSystemdConsole())
                 .ConfigureServices((hostContext, services) =>
                 {
                     services.AddMemoryCache();

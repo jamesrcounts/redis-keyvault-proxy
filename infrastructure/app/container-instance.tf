@@ -1,5 +1,7 @@
 locals {
-  aci_name = "aci-${local.project}"
+  aci_name          = "aci-${local.project}"
+  log_workspace_id  = data.azurerm_log_analytics_workspace.insights.workspace_id
+  log_workspace_key = data.azurerm_log_analytics_workspace.insights.primary_shared_key
 }
 
 resource "azurerm_container_group" "worker" {
@@ -29,8 +31,8 @@ resource "azurerm_container_group" "worker" {
   diagnostics {
     log_analytics {
       metadata      = {}
-      workspace_id  = data.azurerm_log_analytics_workspace.insights.workspace_id
-      workspace_key = data.azurerm_log_analytics_workspace.insights.primary_shared_key
+      workspace_id  = local.log_workspace_id
+      workspace_key = local.log_workspace_key
     }
   }
 
